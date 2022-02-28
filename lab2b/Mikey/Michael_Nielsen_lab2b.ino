@@ -5,21 +5,31 @@ Buzzer buzzer;
 Motors motors;
 
 //Initialize Ultrasonic
-const int ECHO_PIN = 18;
-const int TRIG_PIN = 12;
+const int ECHO_PIN = 22;
+const int TRIG_PIN = 4;
 
 //Ultrasonic Max Distance
-const float MAX_DISTANCE = 100.0; //(200 cm / 2 meters)
+const float MAX_DISTANCE = 50.0; //(200 cm / 2 meters)
 
 // determine the nomalization factor based on MAX_DISTANCE
 const float DISTANCE_FACTOR = MAX_DISTANCE / 100;
-const float STOP_DISTANCE = 5;
+const float STOP_DISTANCE = 10;
 
 // motor constants
-const float MOTOR_BASE_SPEED = 300.0;
+const float MOTOR_BASE_SPEED = 200.0;
 const int MOTOR_MIN_SPEED = 30;
 // determine normalization factor based on MOTOR_BASE_SPEED
 const float MOTOR_FACTOR = MOTOR_BASE_SPEED / 100;
+
+// motor compensation
+const float L_MOTOR_FULL_POWER = 1.0;
+const float L_MOTOR_FACTOR = 0.98;
+
+const float L_MOTOR_FACTOR_THRESHOLD = 200.0;
+const float L_MOTOR_MIN_FACTOR_THRESHOLD = 20.0;
+
+const float R_MOTOR_FACTOR = 1.0;
+const float R_MOTOR_FACTOR_THRESHOLD = 200.0;
 
 
 //Ultrasonic Timing
@@ -33,11 +43,12 @@ unsigned long motorPm;
 const unsigned long MOTOR_PERIOD = 20;
 
 // current US distance reading
-int distance = 0;
+float distance = 0;
 
 void setup() {
 // put your setup code here, to run once:
-  
+  motors.flipLeftMotor(true); 
+  motors.flipRightMotor(true);
   pinMode(ECHO_PIN, INPUT);
   pinMode(TRIG_PIN, OUTPUT);
 
@@ -115,6 +126,17 @@ void usReadCm(){
     // lower limit check
     if(leftSpeed < MOTOR_MIN_SPEED) leftSpeed = MOTOR_MIN_SPEED;
     if(rightSpeed < MOTOR_MIN_SPEED) rightSpeed = MOTOR_MIN_SPEED;
+
+    // add in motor compensation
+    if(leftSpeed >= L_MOTOR_MIN_FACTOR_THRESHOLD && leftSpeed <= L_MOTOR_FACTOR_THRESHOLD){
+      leftSpeed *= L_MOTOR_FACTOR;
+    } else if(leftSpeed < L_MOTOR_MIN_FACTOR_THRESHOLD){
+      leftSpeed *= L_MOTOR_FULL_POWER;
+    }  
+     
+    if(rightSpeed <= R_MOTOR_FACTOR_THRESHOLD){
+      rightSpeed *= R_MOTOR_FACTOR;
+    }
 
     // check stop distance
     if(distance <= STOP_DISTANCE) leftSpeed = 0;
