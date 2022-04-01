@@ -40,6 +40,7 @@ const int MOTOR_MIN_SPEED = 30;
 // determine normalization factor based on MOTOR_BASE_SPEED
 const float MOTOR_FACTOR = MOTOR_BASE_SPEED / 100;
 
+// wheel speed
 int leftSpeed = 0;
 int rightSpeed = 0;
 
@@ -59,13 +60,9 @@ const unsigned long US_PERIOD = 200; // Time to wait for 1st US to activate
 
 // current US distance reading
 int distance = 0;
-int forwardDistance = 0;
-int sideDistance = 0;
-
 
 // desired x position
 double desiredState = (double) 20.0;
-double desiredFrontState = (double) 0.0;
 
 // front pid constants
 const double frontKp = 1;
@@ -76,15 +73,6 @@ double frontPreviousError = 0;
 
 double frontKiTotal = 0.0;
 
-// 135 pid constants
-const double midKp = 1;
-const double midKi = 0.0025;
-const double midKd = 0.025;
-
-double midPreviousError = 0;
-
-double midKiTotal = 0.0;
-
 // side pid constants
 const double sideKp = 1;
 const double sideKi = 0.05;
@@ -94,6 +82,7 @@ double sidePreviousError = 0;
 
 double sideKiTotal = 0.0;
 
+// flag used for when the front pid takes over
 bool frontpid = false;
 
 // global pid constants
@@ -129,122 +118,45 @@ void loop() {
 }
 
 void pid(int distance, int servoAngle) {
-  Serial.println(servoAngle);
   if (servoAngle == 180 && frontpid == false) {
-      Serial.println("Facing Side");
-      Serial.print("Distance : ");
-      Serial.print(distance);
-      Serial.print(" ");
+    error = distance - desiredState;
+    
+    proportional = sideKp * error;
+    sideKiTotal += error;
+    
+    integral = sideKi * sideKiTotal;
+    
+    derivative = sideKd * (error - sidePreviousError);
+    
+    sidePreviousError = error;
 
-      error = distance - desiredState;
+    pidResult = proportional + integral + derivative;
 
-      Serial.print("Error :");
-      Serial.print(error);
-      Serial.print(" ");
+    leftSpeed = MOTOR_BASE_SPEED + pidResult;
+    rightSpeed = MOTOR_BASE_SPEED - pidResult;
 
-      proportional = sideKp * error;
-      sideKiTotal += error;
+  } else if (servoAngle == 90 && distance < 20) {
+    frontpid = true;
+    
+    error = distance - desiredState;
 
-      Serial.print("Proportional : ");
-      Serial.print(proportional);
-      Serial.print(" ");
+    proportional = frontKp * error;
+    frontKiTotal += error;
 
+    integral = frontKi * frontKiTotal;
 
-      integral = sideKi * sideKiTotal;
+    derivative = frontKd * (error - frontPreviousError);
+    frontPreviousError = error;
 
-      // apply limits
-      //if(integral > 4) integral =  4 ;
+    pidResult = proportional + integral + derivative;
 
-      Serial.print("Integral : ");
-      Serial.print(integral);
-      Serial.print(" ");
+    leftSpeed = MOTOR_BASE_SPEED + pidResult;
+    rightSpeed = MOTOR_BASE_SPEED - pidResult;
 
-      derivative = sideKd * (error - sidePreviousError);
-      sidePreviousError = error;
-
-      Serial.print("Derivative : ");
-      Serial.print(derivative);
-      Serial.print(" ");
-
-
-      Serial.print("Previous Error : ");
-      Serial.print(sidePreviousError);
-      Serial.print(" ");
-
-      pidResult = proportional + integral + derivative;
-
-      //Apply the sum to the plant (motors)
-      Serial.print("PID RESULT: ");
-      Serial.print(pidResult);
-      Serial.println(" ");
-
-      //    Serial.print("Motor Speed: ");
-      //    Serial.println(MOTOR_BASE_SPEED + pidResult);
-
-      leftSpeed = MOTOR_BASE_SPEED + pidResult;
-      rightSpeed = MOTOR_BASE_SPEED - pidResult;
-
-      //motors.setSpeeds(leftSpeed, rightSpeed);
-    } else if (servoAngle == 90 && distance < 20) {
-      frontpid = true;
-      //buzzer.play("c32");
-      Serial.println("Facing front");
-      Serial.print("Distance : ");
-      Serial.print(distance);
-      Serial.print(" ");
-
-      error = distance - desiredState;
-
-      Serial.print("Error :");
-      Serial.print(error);
-      Serial.print(" ");
-
-      proportional = frontKp * error;
-      frontKiTotal += error;
-
-      Serial.print("Proportional : ");
-      Serial.print(proportional);
-      Serial.print(" ");
-
-
-      integral = frontKi * frontKiTotal;
-
-      // apply limits
-      //if(integral > 4) integral =  4 ;
-
-      Serial.print("Integral : ");
-      Serial.print(integral);
-      Serial.print(" ");
-
-      derivative = frontKd * (error - frontPreviousError);
-      frontPreviousError = error;
-
-      Serial.print("Derivative : ");
-      Serial.print(derivative);
-      Serial.print(" ");
-
-
-      Serial.print("Previous Error : ");
-      Serial.print(sidePreviousError);
-      Serial.print(" ");
-
-      pidResult = proportional + integral + derivative;
-
-      //Apply the sum to the plant (motors)
-      Serial.print("PID RESULT: ");
-      Serial.print(pidResult);
-      Serial.println(" ");
-
-      //    Serial.print("Motor Speed: ");
-      //    Serial.println(MOTOR_BASE_SPEED + pidResult);
-
-      leftSpeed = MOTOR_BASE_SPEED + pidResult;
-      rightSpeed = MOTOR_BASE_SPEED - pidResult;
-      
-     // motors.setSpeeds(leftSpeed, rightSpeed);
-  } else if(servoAngle == 90 && distance > 20){
+  } else if (servoAngle == 90 && distance > 20) {
     frontpid = false;
   }
+
   motors.setSpeeds(leftSpeed, rightSpeed);
 }
 
@@ -253,37 +165,19 @@ void moveHead() {
   headCm = millis();
   if (headCm > headPm + HEAD_MOVEMENT_PERIOD) {
 
-    // head debug output
-//    if (HEAD_DEBUG) {
-//      // print out ultrasonic sensor reading
-//      Serial.print("Distance at angle ");
-//      Serial.print(HEAD_POSITIONS[currentHeadPosition]);
-//      Serial.print(" : ");
-//      Serial.print(distance);
-//      Serial.println("cm");
-//
-//    }
-
     // position head to the current position in the array
     headServo.write(HEAD_POSITIONS[currentHeadPosition]);
 
-
     //set distance based on servo angle
-      pid(distance, HEAD_POSITIONS[currentHeadPosition]);
-//    }
+    pid(distance, HEAD_POSITIONS[currentHeadPosition]);
 
- // take distance reading from ultrasonic sensor
+    // take distance reading from ultrasonic sensor
     usReadCm();
-
-
-
-   
 
     /**
        Set next head position
        Moves servo to the next head position and changes direction when needed.
     */
-
     if (headDirectionClockwise) {
       if (currentHeadPosition >= (NUM_HEAD_POSITIONS - 1)) {
         headDirectionClockwise = !headDirectionClockwise;
@@ -305,7 +199,6 @@ void moveHead() {
 
     //reset previous millis
     headPm = headCm;
-
   }
 }
 
