@@ -25,7 +25,9 @@ const bool MOTOR_DEBUG = false;
 const bool PID_DEBUG = false;
 const bool ODO_DEBUG = false;
 const bool GOAL_DEBUG = false;
-const bool US_DEBUG = true;
+const bool US_DEBUG = false;
+const bool SERVO_DEBUG = false;
+const bool OBS_DEBUG = true;
 
 /************************
  * PID Variables        *
@@ -37,9 +39,9 @@ const int totalPositions = 4;
 // position: {x, y}
 
 int positions[totalPositions][2] = {
-  {80, 50}, // pos 1
-  {-60, 0}, // pos 2
-  {-60, -30}, // pos 3
+  {100, 0}, // pos 1
+  {0, 0}, // pos 2
+  {50, 0}, // pos 3
   {0,0}}; // pos 4
 
 int currPosition = 0;
@@ -83,7 +85,7 @@ const unsigned short MOTOR_PERIOD = 10;
 
 
 // Motor Speed Factors
-int MOTOR_MIN_SPEED = -75;
+int MOTOR_MIN_SPEED = 0;
 int MOTOR_BASE_SPEED = 50;
 int MOTOR_MAX_SPEED = 75;
 
@@ -107,9 +109,9 @@ int rightSpeed = MOTOR_BASE_SPEED;
 
 // Init Servo Pin(s)
 const short SERV_PIN = 21;
-const short NUM_POSITIONS = 5;
-const short START_POS = 0;
-const short SERVO_POSITIONS[5]  = {45,  67.5, 90, 112.5, 135};
+const short NUM_SERVO_POSITIONS = 4;
+const short SERVO_POSITIONS[4]  = {135, 112.5, 67.5, 45};
+const short START_POS = SERVO_POSITIONS[0];
 
 // PERIOD
 int SERVO_PERIOD = 20;
@@ -188,6 +190,13 @@ double DIST_PER_CLICK = WHEEL_CIRCUMFERENCE/CLICKS_PER_WHEELROTATION;
 double DIST_BTW = 8.45;
 
 /************************
+ * Obstacle Avoidance   *
+ ************************/ 
+
+double obsFactor = 0; // Factor obstacle avoidance uses to affect motors
+double obsRelianceRatio = 0; // How much should the obstacle avoidance affect motors vs the pid
+
+/************************
  * Built In Functions   *
  ************************/ 
 
@@ -224,6 +233,9 @@ void setup(){
 
 void loop() {
   // ** odometer and pid run within affectMotors **
+
+  usReadcm();
+  moveServo();
   
   affectMotors(); // Affect Motor Speeds
 }
@@ -280,8 +292,8 @@ void affectMotors(){
         CURR_BASE_SPEED = MOTOR_BASE_SPEED;
       }
 
-      double leftSpeed = CURR_BASE_SPEED - pidResult;
-      double rightSpeed = CURR_BASE_SPEED + pidResult;
+      double leftSpeed = CURR_BASE_SPEED - (pidResult + obsFactor);
+      double rightSpeed = CURR_BASE_SPEED + (pidResult + obsFactor);
 
       // Apply upper and lower limits to the left motor's speed
       if (leftSpeed > MOTOR_MAX_SPEED) {
@@ -375,7 +387,7 @@ void pid() {
   
   // Calculate Error
 
-  double error = currentAngle - desiredAngle;
+  double error = currentAngle - desiredAngle + obsFactor;
 
   if (PID_DEBUG) {
     Serial.print("ERROR: ");
@@ -479,11 +491,11 @@ void moveServo() {
 
      // Reposition Servo
      if (servoDirectionClockwise) {
-      if (currentServoPos >= (NUM_POSITIONS - 1)) {
+      if (currentServoPos >= (NUM_SERVO_POSITIONS - 1)) {
         
         // Reverse servo and decrement position number
         servoDirectionClockwise = !servoDirectionClockwise;
-        currentServoPos = NUM_POSITIONS-2;
+        currentServoPos = NUM_SERVO_POSITIONS-2;
         
       } else {
         // Increment servo position
@@ -511,7 +523,7 @@ void moveServo() {
      // Reset servoPm
      servoPm = servoCm;
 
-     // TODO: RUN CALC BASED ON READINGS
+     obstacleDetect(); // Detect obstacles when head is moved
   }
 }
 
@@ -553,5 +565,51 @@ void usReadcm() {
       
       // update the prevmillis
       usPm = usCm;
+  }
+}
+
+void obstacleDetect() {
+  /**
+   * Detects obstacles and creates factors that the motors use to affect direction
+   * 
+   */
+
+  int MAX_DIST = 50; // CM
+  int MIN_DIST = 10; // CM
+
+  double leftAvg=0;
+  double rightAvg=0;
+
+  int halflen = NUM_SERVO_POSITIONS/2; // half of servopositions
+
+  for (int i = 0; i < halflen; i++) {
+    leftAvg += distances[i];
+  }
+
+  leftAvg /= halflen;
+  
+  for (int i = halflen; i<NUM_SERVO_POSITIONS; i++) {
+    rightAvg += distances[i];
+  }
+
+  rightAvg /= halflen;
+
+  if (rightAvg < leftAvg) {
+    obsRelianceRatio = (1-(rightAvg/(MAX_DIST)))*2;
+    //obsFactor = (90-SERVO_POSITIONS[closePos])*(M_PI/180)*obsRelianceRatio;
+    obsFactor = (90-SERVO_POSITIONS[NUM_SERVO_POSITIONS-1])*(M_PI/180)*obsRelianceRatio;
+  } else if (leftAvg < MAX_DIST){
+    obsRelianceRatio = (1-(leftAvg/(MAX_DIST)))*2;
+    //obsFactor = (90-SERVO_POSITIONS[closePos])*(M_PI/180)*obsRelianceRatio;
+    obsFactor = (90-SERVO_POSITIONS[0])*(M_PI/180)*obsRelianceRatio;
+  } else {
+    obsFactor = 0;
+    obsRelianceRatio = 0;
+  }
+
+  if (OBS_DEBUG) {
+    Serial.print(obsFactor);
+    Serial.print(" - ");
+    Serial.println(obsRelianceRatio);
   }
 }
