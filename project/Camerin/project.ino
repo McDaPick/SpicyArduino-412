@@ -40,7 +40,7 @@ const int totalPositions = 4;
 
 int positions[totalPositions][2] = {
   {100, 0}, // pos 1
-  {0, 0}, // pos 2
+  {0, 10}, // pos 2
   {50, 0}, // pos 3
   {0,0}}; // pos 4
 
@@ -85,7 +85,7 @@ const unsigned short MOTOR_PERIOD = 10;
 
 
 // Motor Speed Factors
-int MOTOR_MIN_SPEED = 0;
+int MOTOR_MIN_SPEED = 20;
 int MOTOR_BASE_SPEED = 50;
 int MOTOR_MAX_SPEED = 75;
 
@@ -109,8 +109,8 @@ int rightSpeed = MOTOR_BASE_SPEED;
 
 // Init Servo Pin(s)
 const short SERV_PIN = 21;
-const short NUM_SERVO_POSITIONS = 4;
-const short SERVO_POSITIONS[4]  = {135, 112.5, 67.5, 45};
+const short NUM_SERVO_POSITIONS = 5;
+const short SERVO_POSITIONS[NUM_SERVO_POSITIONS]  = {120, 105, 90, 75, 60};
 const short START_POS = SERVO_POSITIONS[0];
 
 // PERIOD
@@ -137,7 +137,7 @@ const short ECHO_PIN = 22;
 const short TRIG_PIN = 4;
 
 //Ultrasonic Maxs
-const short MAX_DISTANCE = 50.0; //(200 cm/2m)
+const short MAX_DISTANCE = 200.0; //(200 cm/2m)
 
 // Ultrasonic timing
 unsigned long usCm; // Ultrasonic Current Millis
@@ -292,8 +292,8 @@ void affectMotors(){
         CURR_BASE_SPEED = MOTOR_BASE_SPEED;
       }
 
-      double leftSpeed = CURR_BASE_SPEED - (pidResult + obsFactor);
-      double rightSpeed = CURR_BASE_SPEED + (pidResult + obsFactor);
+      double leftSpeed = CURR_BASE_SPEED - pidResult - obsFactor;
+      double rightSpeed = CURR_BASE_SPEED + pidResult + obsFactor;
 
       // Apply upper and lower limits to the left motor's speed
       if (leftSpeed > MOTOR_MAX_SPEED) {
@@ -387,7 +387,7 @@ void pid() {
   
   // Calculate Error
 
-  double error = currentAngle - desiredAngle + obsFactor;
+  double error = currentAngle - desiredAngle;
 
   if (PID_DEBUG) {
     Serial.print("ERROR: ");
@@ -579,6 +579,7 @@ void obstacleDetect() {
 
   double leftAvg=0;
   double rightAvg=0;
+  double mid = 0;
 
   int halflen = NUM_SERVO_POSITIONS/2; // half of servopositions
 
@@ -588,24 +589,57 @@ void obstacleDetect() {
 
   leftAvg /= halflen;
   
-  for (int i = halflen; i<NUM_SERVO_POSITIONS; i++) {
+  for (int i = halflen+1; i<NUM_SERVO_POSITIONS; i++) {
     rightAvg += distances[i];
   }
 
   rightAvg /= halflen;
 
+  mid = distances[halflen];
+  
+  if (mid < MAX_DIST) {
+    if (rightAvg <= leftAvg) {
+      mid = MAX_DIST-mid;
+    } else {
+      mid = MAX_DIST+mid;
+    }
+  } else {
+    mid = 0;
+  }
+
+  if (rightAvg >= MAX_DIST) {
+    rightAvg = 0;
+  } else {
+    rightAvg = MAX_DIST-rightAvg;
+  }
+
+  if (leftAvg >= MAX_DIST) {
+    leftAvg = 0;
+  } else {
+    leftAvg = MAX_DIST-leftAvg;
+  }
+
+
+  obsFactor = rightAvg - leftAvg + mid;
+
+
+  /*
   if (rightAvg < leftAvg) {
     obsRelianceRatio = (1-(rightAvg/(MAX_DIST)))*2;
     //obsFactor = (90-SERVO_POSITIONS[closePos])*(M_PI/180)*obsRelianceRatio;
-    obsFactor = (90-SERVO_POSITIONS[NUM_SERVO_POSITIONS-1])*(M_PI/180)*obsRelianceRatio;
+    obsFactor = ((90-SERVO_POSITIONS[NUM_SERVO_POSITIONS-1])*(M_PI/180)+currentAngle);
   } else if (leftAvg < MAX_DIST){
     obsRelianceRatio = (1-(leftAvg/(MAX_DIST)))*2;
     //obsFactor = (90-SERVO_POSITIONS[closePos])*(M_PI/180)*obsRelianceRatio;
-    obsFactor = (90-SERVO_POSITIONS[0])*(M_PI/180)*obsRelianceRatio;
+    obsFactor = ((90-SERVO_POSITIONS[0])*(M_PI/180)+currentAngle);
+  } else if (distances[3] < MAX_DIST) {
+    obsRelianceRatio = (1-(distances[halflen]/(MAX_DIST)))*2;
+
+    obsFactor = (90)*(M_PI/180);
   } else {
     obsFactor = 0;
     obsRelianceRatio = 0;
-  }
+  }*/
 
   if (OBS_DEBUG) {
     Serial.print(obsFactor);
