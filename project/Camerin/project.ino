@@ -146,7 +146,7 @@ const unsigned short US_PERIOD = 50; // Time to wait btw checking the Ultrasonic
 
 // Current US Reading in CM
 double distance = 0; // Stores current distance temporarily
-double distances[5] = {0.0, 0.0, 0.0, 0.0, 0.0}; // Record of distances recorded at each servo position#
+double distances[NUM_SERVO_POSITIONS] = {0.0, 0.0, 0.0, 0.0, 0.0}; // Record of distances recorded at each servo position#
 
 // Keeps track of if distance was recorded yet
 bool recordedDist = false;
@@ -195,6 +195,7 @@ double DIST_BTW = 8.45;
 
 double obsFactor = 0; // Factor obstacle avoidance uses to affect motors
 double obsRelianceRatio = 0; // How much should the obstacle avoidance affect motors vs the pid
+double positionMag[NUM_SERVO_POSITIONS] = { 5, 10, 15, -10, -5};
 
 /************************
  * Built In Functions   *
@@ -584,13 +585,13 @@ void obstacleDetect() {
   int halflen = NUM_SERVO_POSITIONS/2; // half of servopositions
 
   for (int i = 0; i < halflen; i++) {
-    leftAvg += distances[i];
+    leftAvg += distances[i]*positionMag[i];
   }
 
   leftAvg /= halflen;
   
   for (int i = halflen+1; i<NUM_SERVO_POSITIONS; i++) {
-    rightAvg += distances[i];
+    rightAvg += distances[i]*positionMag[i];
   }
 
   rightAvg /= halflen;
