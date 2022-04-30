@@ -1,28 +1,34 @@
-// [Lab 4] Localization
-//   - This program is a full localization controller in 2D cartesian space. This program enables
-//   our robot to be given multiple locations stores as [x, y] coordinates and will be able 
-//   to direct itself towards the goal locations given. 
+// [Final] Localization + Object Awarness
+//   - This program is a full localization controller in 2D cartesian space. With the added
+//   capability to recognize objects within its direct environment. Upon being given a respective
+//   goal. This program enables the ability to reach that goal whilst avoiding objects inhibiting 
+//   its path. 
 //
 // @author Christian Saltarelli
-// @date 4-8-22
+// @date 4-29-22
 #include <Pololu3piPlus32U4.h>
+#include <Servo.h>
 using namespace Pololu3piPlus32U4;
 
 Encoders encoders;
+Servo servo;
 Motors motors;
 Buzzer buzzer;
 
 // Switches
 const boolean EN_DEBUG = false;
-const boolean LOCALE_DEBUG = true;
+const boolean US_DEBUG = true;
+const boolean HEAD_DEBUG = false;
+const boolean LOCALE_DEBUG = false;
 const boolean ERROR_DEBUG = false;
-const boolean MOTOR_DEBUG = false; 
+const boolean MOTOR_DEBUG = false;
 
-const boolean MOTOR_ON = true;
+const boolean MOTOR_ON = false;
+const boolean US_ON = true;
 
 // Goal Constraints
-const int NUM_GOALS = 4;
-float Goals[NUM_GOALS][2] = {{80, 50.0}, {-60.0, 0.0}, {-60, -30.0}, {0.0, 0.0}};
+const int NUM_GOALS = 1;
+float Goals[NUM_GOALS][2] = {{80.0, 50.0}};
 int currentGoal = 0; // Default
 boolean completed = false;
 
@@ -35,6 +41,31 @@ float deltaTheta = 0;
 float deltaX = 0;
 float deltaY = 0;
 
+// Servo Properties
+unsigned long headCm;
+unsigned long headPm;
+const unsigned long HEAD_PERIOD = 150;
+
+const int SERVO_PIN = 20;
+const int NUM_POSITIONS = 5;
+const int SERVO_POSITIONS[NUM_POSITIONS] = {135, 120, 90, 60, 45};
+const float SERVO_PRIORITY[NUM_POSITIONS] = {1.0, 1.5, 2.0, 1.5, 1.0};
+
+boolean servoDirectionClockwise = true;
+int currentHeadPosition = 2; // Index
+
+// Ultrasonic Properties
+const int ECHO_PIN = 12;
+const int TRIG_PIN = 18;
+
+const float MAX_DISTANCE = 20.0;
+const float DISTANCE_FACTOR = MAX_DISTANCE / 100;
+float distances[NUM_POSITIONS] = {MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE};
+
+unsigned long usCm;
+const unsigned long US_PERIOD = 80;   // Interval to Check US
+boolean usReadFlag = false;           // Ensures 1 reading from US
+
 // Encoder Conditions
 unsigned long enCM;
 unsigned long enPM;
@@ -42,8 +73,8 @@ const unsigned long EN_PERIOD = 30;
 
 long countsLeft = 0;
 long countsRight = 0;
-long prevLeft = 0;
 long prevRight = 0;
+long prevLeft = 0;
 
 // Distance Calculation Properties
 const int CLICKS_PER_ROTATION = 12;
@@ -73,6 +104,19 @@ void setup() {
   // Configure Serial Monitor
   Serial.begin(57600);
 
+  // Update Pin Mapping + Servo
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+
+  servo.attach(SERVO_PIN);
+  servo.write(SERVO_POSITIONS[2]); // Default 0
+  
+  // Configure Motors + Encoders
+  motors.flipLeftMotor(true);
+  motors.flipRightMotor(true);
+  
+  encoders.flipEncoders(true);
+
   // Notify Program Start
   buzzer.play("c32");
   delay(1000);
@@ -82,13 +126,35 @@ void loop() {
   if (!completed) {
     // Check Current Goal
     checkGoal();
+
+    // Update Robot Mapping + US Position
+    updateState();
     
-    // Update Robot Mapping
-    enReadCM(); 
   } else {
-    // Ensure Rbbot isn't moving
+    // Ensure Robot isn't moving
     motors.setSpeeds(0.0, 0.0);
   }
+
+}
+
+/**
+ * updateState()
+ *  - Encapsulates updating our internal
+ *  mapping for both Localization +
+ *  Object Detection.
+ */
+void updateState() {
+  // Collect Readings for Encoders + US
+  enReadCM();
+  usReadCM();
+
+  // Get Goal + Obj Result
+  float goalResult = updatePID();
+  float objResult = updateDetection();
+  
+  // Update Motors w/ Results
+  setMotors(goalResult, objResult);
+
 }
 
 /**
@@ -167,7 +233,108 @@ void enReadCM() {
     updateLocale();
 
   }
+
+  // Update Head
+  setHead();
 }
+
+/**
+ * usReadCm()
+ * - Used to initiate our US and
+ *   determine the respective distance (cm)
+ *   from any returned sound waves.
+ */
+void usReadCM() {
+  usCm = millis();
+
+  if (usCm > headPm + US_PERIOD && !usReadFlag) {
+    if (US_ON) {
+      // Clear TRIG_PIN
+      digitalWrite(TRIG_PIN, LOW);
+      delayMicroseconds(2);
+
+      // Initiate our TRIG_PIN to HIGH (active) for 10s
+      digitalWrite(TRIG_PIN, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(TRIG_PIN, LOW);
+
+      // Get Sound ToF via ECHO_PIN
+      long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+
+      // Calculate Distance w/ ToF for Respective Head Position
+      distances[currentHeadPosition] = duration * 0.034 / 2;
+
+      // Apply Respective Limits
+      if (distances[currentHeadPosition] > MAX_DISTANCE) distances[currentHeadPosition] = MAX_DISTANCE;
+      if (distances[currentHeadPosition] == 0) distances[currentHeadPosition] = MAX_DISTANCE;
+
+      if (US_DEBUG) {
+        Serial.print("Distance readings: [");
+        for(int i = 0; i < NUM_POSITIONS; i++) {
+          if (i == currentHeadPosition) {
+            Serial.print("N ");
+            Serial.print(distances[i]);
+          } else {
+            Serial.print(distances[i]);          
+          }
+          if (i < NUM_POSITIONS - 1) Serial.print(" - ");
+        }
+        Serial.println(" ]");
+      }
+
+      // Update US Read Flag
+      usReadFlag = true;
+    }
+  }
+
+  // Update Head Position for Next Reading
+//  setHead();
+}
+
+void setHead() {
+  headCm = millis();
+
+  if (headCm > headPm + HEAD_PERIOD) {
+    // Set Next Head Position
+    if (servoDirectionClockwise) {
+      if (currentHeadPosition >= (NUM_POSITIONS - 1)) {
+        servoDirectionClockwise = !servoDirectionClockwise;
+        currentHeadPosition--;
+        
+      } else {
+        currentHeadPosition++;
+      }
+    
+    } else {
+      if (currentHeadPosition <= 0) {
+        servoDirectionClockwise= !servoDirectionClockwise;
+        currentHeadPosition++;
+      
+      } else {
+        currentHeadPosition--;
+      }
+    }
+
+    servo.write(SERVO_POSITIONS[currentHeadPosition]);
+
+    // Debug Flag Output
+    if (HEAD_DEBUG) {
+      Serial.print("Angle: ");
+      Serial.print(currentHeadPosition);
+      Serial.print(" - ");
+      Serial.println(SERVO_POSITIONS[currentHeadPosition]);
+      Serial.println("################");
+    }
+
+
+    // Update Previous Millis
+    headPm = headCm;
+
+    // Update US Read Flag
+    usReadFlag = false;
+  }
+}
+
 
 /**
  * updateLocale()
@@ -197,15 +364,23 @@ void updateLocale() {
     Serial.print(pose[2]);
     Serial.println();
   }
+}
 
-  // Update Motors based on PID Output
-  setMotors(updatePID());
+/**
+ * updateDetection()
+ *  - Updates our expected reaction
+ *  to the detection of an object
+ *  within our environment.
+ */
+float updateDetection() {
+  // TODO:- Implement Detection Functionality
+  return 0.0;
 }
 
 /**
  * updatePID()
  *  - Used to calculate our error rate
- *  based onn the components of the PID 
+ *  based on the components of the PID 
  *  algorithm.
  */
 float updatePID() {
@@ -242,7 +417,7 @@ float updatePID() {
  *  - Updates our Motors from the result
  *  of our PID algorithm.
  */
-void setMotors(float result) {  
+void setMotors(float gResult, float oResult) {  
   // Start with BASE_SPEED
   float leftSpeed = BASE_SPEED;
   float rightSpeed = BASE_SPEED;
@@ -252,12 +427,12 @@ void setMotors(float result) {
   float magnitude = dampen((float)(current_distance) / distance_factor);
   
   // Calculate Speed based on PID Result + Magnitude
-  leftSpeed -= (result * magnitude);
-  rightSpeed += (result * magnitude);
+  leftSpeed -= (gResult * magnitude);
+  rightSpeed += (gResult * magnitude);
 
   if (MOTOR_DEBUG) {
     Serial.print("PID Result: ");
-    Serial.print(result);
+    Serial.print(gResult);
     Serial.print("  Distance Factor: ");
     Serial.print(distance_factor);
     Serial.print("  Magnitude: ");
