@@ -389,6 +389,10 @@ void pid() {
   // Calculate Error
 
   double error = currentAngle - desiredAngle;
+  
+  if(abs(error) > 3.14) {
+    error = abs(error);
+  }
 
   if (PID_DEBUG) {
     Serial.print("ERROR: ");
