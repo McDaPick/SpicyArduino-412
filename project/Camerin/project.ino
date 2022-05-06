@@ -27,7 +27,7 @@ const bool ODO_DEBUG = false;
 const bool GOAL_DEBUG = false;
 const bool US_DEBUG = false;
 const bool SERVO_DEBUG = false;
-const bool OBS_DEBUG = true;
+const bool OBS_DEBUG = false;
 
 /************************
  * PID Variables        *
@@ -110,7 +110,7 @@ int rightSpeed = MOTOR_BASE_SPEED;
 // Init Servo Pin(s)
 const short SERV_PIN = 21;
 const short NUM_SERVO_POSITIONS = 5;
-const short SERVO_POSITIONS[NUM_SERVO_POSITIONS]  = {120, 105, 90, 75, 60};
+const short SERVO_POSITIONS[NUM_SERVO_POSITIONS]  = {140, 115, 90, 65, 40};
 const short START_POS = SERVO_POSITIONS[0];
 
 // PERIOD
@@ -137,7 +137,7 @@ const short ECHO_PIN = 22;
 const short TRIG_PIN = 4;
 
 //Ultrasonic Maxs
-const short MAX_DISTANCE = 200.0; //(200 cm/2m)
+const short MAX_DISTANCE = 50.0; //(200 cm/2m)
 
 // Ultrasonic timing
 unsigned long usCm; // Ultrasonic Current Millis
@@ -195,7 +195,7 @@ double DIST_BTW = 8.45;
 
 double obsFactor = 0; // Factor obstacle avoidance uses to affect motors
 double obsRelianceRatio = 0; // How much should the obstacle avoidance affect motors vs the pid
-double positionMag[NUM_SERVO_POSITIONS] = { 5, 10, 15, -10, -5};
+double positionMag[NUM_SERVO_POSITIONS] = { 5, 10, 15, 10, 5};
 
 /************************
  * Built In Functions   *
@@ -389,6 +389,8 @@ void pid() {
   // Calculate Error
 
   double error = currentAngle - desiredAngle;
+  
+  error = atan2(sin(error), cos(error));
 
   if (PID_DEBUG) {
     Serial.print("ERROR: ");
@@ -575,8 +577,6 @@ void obstacleDetect() {
    * 
    */
 
-  int MAX_DIST = 50; // CM
-  int MIN_DIST = 10; // CM
 
   double leftAvg=0;
   double rightAvg=0;
@@ -598,27 +598,20 @@ void obstacleDetect() {
 
   mid = distances[halflen];
   
-  if (mid < MAX_DIST) {
+  if (mid < MAX_DISTANCE) {
+    mid = MAX_DISTANCE-(mid * positionMag[halflen]);
+
     if (rightAvg <= leftAvg) {
-      mid = MAX_DIST-mid;
-    } else {
-      mid = MAX_DIST+mid;
+      mid *= -1;
     }
+
   } else {
     mid = 0;
   }
 
-  if (rightAvg >= MAX_DIST) {
-    rightAvg = 0;
-  } else {
-    rightAvg = MAX_DIST-rightAvg;
-  }
+  rightAvg = MAX_DISTANCE-rightAvg;
 
-  if (leftAvg >= MAX_DIST) {
-    leftAvg = 0;
-  } else {
-    leftAvg = MAX_DIST-leftAvg;
-  }
+  leftAvg = MAX_DISTANCE-leftAvg;
 
 
   obsFactor = rightAvg - leftAvg + mid;
@@ -643,8 +636,10 @@ void obstacleDetect() {
   }*/
 
   if (OBS_DEBUG) {
+    Serial.print(leftAvg);
+    Serial.print(" - ");
     Serial.print(obsFactor);
     Serial.print(" - ");
-    Serial.println(obsRelianceRatio);
+    Serial.println(rightAvg);
   }
 }
