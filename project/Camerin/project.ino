@@ -390,11 +390,7 @@ void pid() {
 
   double error = currentAngle - desiredAngle;
   
-  error = atan2(error, error);
-  
-  if(abs(error) > 3.14) {
-    error = abs(error);
-  }
+  error = atan2(sin(error), cos(error));
 
   if (PID_DEBUG) {
     Serial.print("ERROR: ");
