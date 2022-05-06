@@ -21,20 +21,20 @@ Encoders encoders;
 const boolean ANGLE_DEBUG = false;
 const boolean PID_DEBUG = false;
 const boolean MOTOR_DEBUG = false;
-const boolean MOVE_MOTORS = false;
+const boolean MOVE_MOTORS = true;
 const boolean SL_SR_DEBUG = false;
 const boolean UPDATED_POSITION_DEBUG = false;
-const boolean GOAL_DEBUG = false;
+const boolean GOAL_DEBUG = true;
 const boolean MAGNITUDE_DEBUG = false;
 const boolean HEAD_DEBUG = false;
 const boolean INDIV_DISTANCE_DEBUG = false;
-const boolean DISTANCE_ARRAY_DEBUG = true;
-const boolean OBSTACLE_AVG_DEBUG = true;
+const boolean DISTANCE_ARRAY_DEBUG = false;
+const boolean OBSTACLE_AVG_DEBUG = false;
 
 // Localization Goals
 const int NUMBER_OF_GOALS = 4;
-float xGoals[NUMBER_OF_GOALS] = {80, -60, -60, 0};
-float yGoals[NUMBER_OF_GOALS] = {50, 0, -30, 0};
+float xGoals[NUMBER_OF_GOALS] = {40, 0, -40, 0};
+float yGoals[NUMBER_OF_GOALS] = {0, 0, 0, 0};
 int current_goal = 0;
 // should we keep moving towards a goal?
 boolean notDone = true;
@@ -121,6 +121,9 @@ float distanceArray[NUM_HEAD_POSITIONS] = {MAX_DISTANCE, MAX_DISTANCE, MAX_DISTA
 // array of proportional response for servo positions.
 // more focus on angles closer to front! higher proportional!
 const float magnitudeArray[NUM_HEAD_POSITIONS] = {1.0, 1.5, 2.0, 1.5, 1.0};
+float magnitudeFactor = 0.0;
+float obstacleFactor = 0.0;
+float pidResult = 0.0;
 
 void setup() {
   // put your setup code here, to run once:
@@ -128,7 +131,7 @@ void setup() {
   // reverse those motors since our guy is backwards!
   motors.flipLeftMotor(true);
   motors.flipRightMotor(true);
-  encoders.flipEncoders(true);
+  //encoders.flipEncoders(true);
 
   //servo setup
   headServo.attach(HEAD_SERVO_PIN);
@@ -186,11 +189,6 @@ void checkGoals() {
 
 void checkEncoders() {
   // get encoder values for both sides
-  // THESE NEED TO BE FLIPPED TO GET CORRECT Y VALUES
-  // flipping motors does not flip encoders. deltaTheta relies on these reflecting
-  // the robot's left and right wheels according as Sl and Sr, so we can keep the equations
-  // the same, but since the robot's 'left' wheel in odometry is actually its technical 'right'
-  // wheel, we need to swap them here to make sure our flipped motors encode each side accurately.
   countLeft += encoders.getCountsAndResetRight();
   countRight += encoders.getCountsAndResetLeft();
 
@@ -198,8 +196,6 @@ void checkEncoders() {
   Sl = ((countLeft - prevLeft) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENCE);
   Sr = ((countRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENCE);
 
-  // Sl and Sr DO NOT FLIP with the motors flip code.
-  // need to inverse them manually.
   Sl *= -1.0;
   Sr *= -1.0;
 
@@ -257,6 +253,9 @@ void pidCalculations() {
   // positive error = needs to turn left to increase theta
   // negative error = needs to turn right to decrease theta
   double error = desiredTheta - p[THETA_POSITION];
+
+  // apply blanket atan2 call to fix ~180 turn wiggle bug
+  error = atan2(sin(error), cos(error));
   
   // Calculate Proportional part of PID
   double proportional = kp * error;
@@ -281,7 +280,7 @@ void pidCalculations() {
   previousError = error;
 
   // PID result from calculations
-  float pidResult = proportional + integral + derivative;
+  pidResult = proportional + integral + derivative;
 
   if(ANGLE_DEBUG) {
     Serial.print("current pos in degrees: ");
@@ -326,7 +325,7 @@ void pidCalculations() {
   float magnitude = sqrt(sq(xGoals[current_goal] - p[X_POSITION]) + sq(yGoals[current_goal] - p[Y_POSITION]));
   float new_mag = magnitude / distance_factor;
   float new_mag_2 = .2 * sin(PI*new_mag) + 0.8;
-  
+  magnitudeFactor = new_mag_2;
   
   if(MAGNITUDE_DEBUG) {
     Serial.print(" X: ");
@@ -336,12 +335,12 @@ void pidCalculations() {
     Serial.print(" magnitude: ");
     Serial.println(new_mag_2);
   }
-  // add the result to the appropriate wheel
-  leftSpeed = MOTOR_BASE_SPEED * new_mag_2 + (pidResult);
-  rightSpeed = MOTOR_BASE_SPEED * new_mag_2 - (pidResult);
 }
 
 void moveMotors() {
+  // Update leftSpeed/rightSpeed with pid result and obstacle factor
+  leftSpeed = MOTOR_BASE_SPEED * magnitudeFactor + pidResult - obstacleFactor;
+  rightSpeed = MOTOR_BASE_SPEED * magnitudeFactor - pidResult + obstacleFactor;
   // set motor speed for either PID by using leftSpeed/rightSpeed
     if(MOVE_MOTORS and notDone) { 
       motors.setSpeeds(leftSpeed, rightSpeed);
@@ -352,6 +351,14 @@ void moveMotors() {
       Serial.print(" right: ");
       Serial.println(rightSpeed);
     }
+//    Serial.print("L: ");
+//    Serial.print(leftSpeed);
+//    Serial.print(" R: ");
+//    Serial.print(rightSpeed);
+//    Serial.print(" pid: ");
+//    Serial.print(pidResult);
+//    Serial.print(" obsFac: ");
+//    Serial.println(obstacleFactor);
 }
 
 void moveHead() {
@@ -432,7 +439,7 @@ void usReadCm() {
 
     // print out last recorded distances for each angle
     if(DISTANCE_ARRAY_DEBUG) {
-      Serial.print("[");
+      Serial.print(" [");
       for(int i = 0; i < NUM_HEAD_POSITIONS; i++) {
         Serial.print(distanceArray[i]);
         if(i != NUM_HEAD_POSITIONS - 1) {
@@ -452,30 +459,46 @@ void usReadCm() {
 
 void obstacleCalculations() {
   if(obstacleDetection) {
-    // get 'half' averages from left [0, 1, 2] and right [2, 3, 4] positions.
+    // get 'half' averages from left [0, 1] and right [3, 4] positions.
     float leftAvg = 0.0;
     float rightAvg = 0.0;
+    float midDistance = distanceArray[3];
     
     // need closer reading = MORE reaction. do this by subtracting from max distance.
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < 2; i++) {
       leftAvg += (MAX_DISTANCE - distanceArray[i]) * magnitudeArray[i];
     }
-    for(int i = 2; i < 5; i++) {
+    for(int i = 3; i < 5; i++) {
       rightAvg += (MAX_DISTANCE - distanceArray[i]) * magnitudeArray[i];
     }
     
-    leftAvg /= 3;
-    rightAvg /= 3;
+    leftAvg /= 2;
+    rightAvg /= 2;
     
     if(OBSTACLE_AVG_DEBUG) {
       Serial.print("leftAvg: ");
       Serial.print(leftAvg);
       Serial.print(" rightAvg: ");
       Serial.println(rightAvg);
+      Serial.print(" X: ");
+      Serial.print(p[X_POSITION]);
+      Serial.print(" Y: ");
+      Serial.print(p[Y_POSITION]);
     }
     obstacleDetection = false;
 
-    // TODO: apply leftAvg and rightAvg to appropriate speeds
+    // apply leftAvg and rightAvg to appropriate speeds
+    // if left > right, then left needs to be + to push it away from obstacle.
+    // so add factor to leftSpeed, subtract factor from rightSpeed
+    // also need to make sure the middle value pushes to the correct side based
+    // on leftAvg and rightAvg. If they are the same, turn right as default.
+    float midFactor = (MAX_DISTANCE - midDistance) * magnitudeArray[2];
+    if (leftAvg < rightAvg) {
+      midFactor *= -1.0;
+    }
+    // give the factor that will change speeds in moveMotors()
+    obstacleFactor = leftAvg - rightAvg + midFactor;
+    
     // TODO: check to see if they are != 0 and still equal? might need to 
     // guide it in a specific direction?
   }
