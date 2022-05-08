@@ -41,7 +41,7 @@ const int totalPositions = 4;
 int positions[totalPositions][2] = {
   {100, 0}, // pos 1
   {0, 10}, // pos 2
-  {50, 0}, // pos 3
+  {50, -100}, // pos 3
   {0,0}}; // pos 4
 
 int currPosition = 0;
@@ -57,13 +57,13 @@ double pidResult = 0;
 
 // PID constants
 // TODO: Tune constants
-double kp = 0.0075;
+double kp = 0.0073;
 double ki = 0.00012;
 double kd = 0.000213;
 
 // Limit PID from going off the rails
-const double PID_MAX = 10000;
-const double PID_MIN = -10000;
+const double PID_MAX = 1000;
+const double PID_MIN = -1000;
 const double INTEGRAL_MAX = 1000;
 const double INTEGRAL_MIN = -1000;
 
@@ -85,7 +85,7 @@ const unsigned short MOTOR_PERIOD = 10;
 
 
 // Motor Speed Factors
-int MOTOR_MIN_SPEED = 20;
+int MOTOR_MIN_SPEED = 35;
 int MOTOR_BASE_SPEED = 50;
 int MOTOR_MAX_SPEED = 75;
 
@@ -110,7 +110,7 @@ int rightSpeed = MOTOR_BASE_SPEED;
 // Init Servo Pin(s)
 const short SERV_PIN = 21;
 const short NUM_SERVO_POSITIONS = 5;
-const short SERVO_POSITIONS[NUM_SERVO_POSITIONS]  = {140, 115, 90, 65, 40};
+const short SERVO_POSITIONS[NUM_SERVO_POSITIONS]  = {145, 117, 90, 63, 35};
 const short START_POS = SERVO_POSITIONS[0];
 
 // PERIOD
@@ -195,7 +195,7 @@ double DIST_BTW = 8.45;
 
 double obsFactor = 0; // Factor obstacle avoidance uses to affect motors
 double obsRelianceRatio = 0; // How much should the obstacle avoidance affect motors vs the pid
-double positionMag[NUM_SERVO_POSITIONS] = { 5, 10, 15, 10, 5};
+double positionMag[NUM_SERVO_POSITIONS] = { 5, 7, 12, 7, 5};
 
 /************************
  * Built In Functions   *
@@ -521,7 +521,7 @@ void moveServo() {
      int pos = SERVO_POSITIONS[currentServoPos];
      
      servo.write(pos); // Move servo to new position
-     usPm = millis()+75;
+     usPm = millis()+100;
 
      // Reset servoPm
      servoPm = servoCm;
