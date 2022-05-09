@@ -24,17 +24,17 @@ const boolean MOTOR_DEBUG = false;
 const boolean MOVE_MOTORS = true;
 const boolean SL_SR_DEBUG = false;
 const boolean UPDATED_POSITION_DEBUG = false;
-const boolean GOAL_DEBUG = true;
+const boolean GOAL_DEBUG = false;
 const boolean MAGNITUDE_DEBUG = false;
 const boolean HEAD_DEBUG = false;
 const boolean INDIV_DISTANCE_DEBUG = false;
-const boolean DISTANCE_ARRAY_DEBUG = false;
+const boolean DISTANCE_ARRAY_DEBUG = true;
 const boolean OBSTACLE_AVG_DEBUG = false;
 
 // Localization Goals
 const int NUMBER_OF_GOALS = 4;
-float xGoals[NUMBER_OF_GOALS] = {40, 0, -40, 0};
-float yGoals[NUMBER_OF_GOALS] = {0, 0, 0, 0};
+float xGoals[NUMBER_OF_GOALS] = {80, 80, 110, 0};
+float yGoals[NUMBER_OF_GOALS] = {0, -80, 0, 0};
 int current_goal = 0;
 // should we keep moving towards a goal?
 boolean notDone = true;
@@ -75,7 +75,7 @@ float Sr = 0.0F;
 
 // Motor Control
 const double MOTOR_BASE_SPEED = 70;
-const double MOTOR_MINIMUM_SPEED = 40;
+const double MOTOR_MINIMUM_SPEED = 30;
 float leftSpeed = MOTOR_BASE_SPEED;
 float rightSpeed = MOTOR_BASE_SPEED;
 float distance_factor = sqrt(sq(xGoals[current_goal] - p[X_POSITION]) + sq(yGoals[current_goal] - p[Y_POSITION]));
@@ -83,7 +83,7 @@ float distance_factor = sqrt(sq(xGoals[current_goal] - p[X_POSITION]) + sq(yGoal
 // Timing Constants
 unsigned long currentMillis;
 unsigned long previousMillis;
-const unsigned long PERIOD = 20;
+const unsigned long PERIOD = 10;
 
 // Song notes
 const int gs5 = 831;
@@ -97,7 +97,7 @@ unsigned long headServoCm;
 unsigned long headServoPm;
 const unsigned long HEAD_SERVO_MOVEMENT_PERIOD = 150;
 const int NUM_HEAD_POSITIONS = 5;
-const int HEAD_POSITIONS[NUM_HEAD_POSITIONS] = {130, 110, 90, 70, 50};
+const int HEAD_POSITIONS[NUM_HEAD_POSITIONS] = {150, 120, 90, 60, 30};
 boolean headDirectionClockwise = true;
 int currentHeadPosition = 0;
 // Servo rotation is ~-7 degrees off. so for a true 'straight 90 degree' angle, we need 83.
@@ -109,7 +109,7 @@ const unsigned long US_WAITING_TIME = 80;
 // Ultrasonic Constants and Timing
 const int ECHO_PIN = 18;
 const int TRIG_PIN = 12;
-const float MAX_DISTANCE = 20.0;
+const float MAX_DISTANCE = 25.0;
 float distance = 0;
 boolean usReadFlag = false;
 boolean obstacleDetection = false;
@@ -120,7 +120,7 @@ unsigned long usPm;
 float distanceArray[NUM_HEAD_POSITIONS] = {MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE};
 // array of proportional response for servo positions.
 // more focus on angles closer to front! higher proportional!
-const float magnitudeArray[NUM_HEAD_POSITIONS] = {1.0, 1.5, 2.0, 1.5, 1.0};
+const float magnitudeArray[NUM_HEAD_POSITIONS] = {6, 8, 10, 8, 6};
 float magnitudeFactor = 0.0;
 float obstacleFactor = 0.0;
 float pidResult = 0.0;
@@ -342,19 +342,27 @@ void moveMotors() {
   leftSpeed = MOTOR_BASE_SPEED * magnitudeFactor + pidResult - obstacleFactor;
   rightSpeed = MOTOR_BASE_SPEED * magnitudeFactor - pidResult + obstacleFactor;
   // set motor speed for either PID by using leftSpeed/rightSpeed
-    if(MOVE_MOTORS and notDone) { 
-      motors.setSpeeds(leftSpeed, rightSpeed);
-    }
-    if (MOTOR_DEBUG) {
-      Serial.print("left: ");
-      Serial.print(leftSpeed);
-      Serial.print(" right: ");
-      Serial.println(rightSpeed);
-    }
+
+  // limit check
+  if(leftSpeed < MOTOR_MINIMUM_SPEED) {
+    leftSpeed = MOTOR_MINIMUM_SPEED;
+  }
+  if(rightSpeed < MOTOR_MINIMUM_SPEED) {
+    rightSpeed = MOTOR_MINIMUM_SPEED;
+  }
+  if(MOVE_MOTORS and notDone) { 
+    motors.setSpeeds(leftSpeed, rightSpeed);
+  }
+  if (MOTOR_DEBUG) {
+    Serial.print("left: ");
+    Serial.print(leftSpeed);
+    Serial.print(" right: ");
+    Serial.println(rightSpeed);
+  }
 //    Serial.print("L: ");
-//    Serial.print(leftSpeed);
-//    Serial.print(" R: ");
 //    Serial.print(rightSpeed);
+//    Serial.print(" R: ");
+//    Serial.print(leftSpeed);
 //    Serial.print(" pid: ");
 //    Serial.print(pidResult);
 //    Serial.print(" obsFac: ");
@@ -441,12 +449,12 @@ void usReadCm() {
     if(DISTANCE_ARRAY_DEBUG) {
       Serial.print(" [");
       for(int i = 0; i < NUM_HEAD_POSITIONS; i++) {
-        Serial.print(distanceArray[i]);
+        Serial.print(MAX_DISTANCE - distanceArray[i]);
         if(i != NUM_HEAD_POSITIONS - 1) {
           Serial.print(", ");
         }
       }
-      Serial.print("] ");
+      Serial.println("] ");
     }
     // reset flag so it knows not to run this code until the flag
     // is set back to false when servo is changing angle in moveHead().
@@ -462,7 +470,7 @@ void obstacleCalculations() {
     // get 'half' averages from left [0, 1] and right [3, 4] positions.
     float leftAvg = 0.0;
     float rightAvg = 0.0;
-    float midDistance = distanceArray[3];
+    float midDistance = distanceArray[2];
     
     // need closer reading = MORE reaction. do this by subtracting from max distance.
     for(int i = 0; i < 2; i++) {
@@ -499,8 +507,6 @@ void obstacleCalculations() {
     // give the factor that will change speeds in moveMotors()
     obstacleFactor = leftAvg - rightAvg + midFactor;
     
-    // TODO: check to see if they are != 0 and still equal? might need to 
-    // guide it in a specific direction?
   }
   
 }
