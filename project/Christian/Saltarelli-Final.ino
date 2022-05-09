@@ -17,18 +17,20 @@ Buzzer buzzer;
 
 // Switches
 const boolean EN_DEBUG = false;
-const boolean US_DEBUG = true;
+const boolean US_DEBUG = false;
 const boolean HEAD_DEBUG = false;
 const boolean LOCALE_DEBUG = false;
 const boolean ERROR_DEBUG = false;
-const boolean MOTOR_DEBUG = false;
+const boolean OBJ_DETECTION_DEBUG = false;
+const boolean MOTOR_DEBUG = true;
 
-const boolean MOTOR_ON = false;
+const boolean OBJ_DETECTION_ON = true;
+const boolean MOTOR_ON = true;
 const boolean US_ON = true;
 
 // Goal Constraints
 const int NUM_GOALS = 1;
-float Goals[NUM_GOALS][2] = {{80.0, 50.0}};
+float Goals[NUM_GOALS][2] = {{50.0, 80.0}};
 int currentGoal = 0; // Default
 boolean completed = false;
 
@@ -48,8 +50,8 @@ const unsigned long HEAD_PERIOD = 150;
 
 const int SERVO_PIN = 20;
 const int NUM_POSITIONS = 5;
-const int SERVO_POSITIONS[NUM_POSITIONS] = {135, 120, 90, 60, 45};
-const float SERVO_PRIORITY[NUM_POSITIONS] = {1.0, 1.5, 2.0, 1.5, 1.0};
+const int SERVO_POSITIONS[NUM_POSITIONS] = {145, 125, 90, 55, 35};
+const float SERVO_PRIORITY[NUM_POSITIONS] = {1.5, 2.0, 2.5, 2.0, 1.5};
 
 boolean servoDirectionClockwise = true;
 int currentHeadPosition = 2; // Index
@@ -58,9 +60,10 @@ int currentHeadPosition = 2; // Index
 const int ECHO_PIN = 12;
 const int TRIG_PIN = 18;
 
-const float MAX_DISTANCE = 20.0;
+const float MAX_DISTANCE = 30.0;
 const float DISTANCE_FACTOR = MAX_DISTANCE / 100;
 float distances[NUM_POSITIONS] = {MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE, MAX_DISTANCE};
+boolean objDetectionFlag = false;
 
 unsigned long usCm;
 const unsigned long US_PERIOD = 80;   // Interval to Check US
@@ -97,7 +100,7 @@ float errorRate = 0;
 float prevErrorRate = 0; 
 
 // Speed + Motor Factor Properties
-const float BASE_SPEED = 90.0;
+const float BASE_SPEED = 70.0;
 const float MOTOR_FACTOR = BASE_SPEED / 100;
 
 void setup() {
@@ -115,7 +118,7 @@ void setup() {
   motors.flipLeftMotor(true);
   motors.flipRightMotor(true);
   
-  encoders.flipEncoders(true);
+  //encoders.flipEncoders(true);
 
   // Notify Program Start
   buzzer.play("c32");
@@ -154,7 +157,6 @@ void updateState() {
   
   // Update Motors w/ Results
   setMotors(goalResult, objResult);
-
 }
 
 /**
@@ -203,15 +205,19 @@ void enReadCM() {
 
   if (enCM > enPM + EN_PERIOD) {
     // Get Current Total Clicks 
-    countsLeft += encoders.getCountsAndResetLeft();
-    countsRight += encoders.getCountsAndResetRight();
+    countsLeft += encoders.getCountsAndResetRight();
+    countsRight += encoders.getCountsAndResetLeft();
 
     // Update Distance Traveled for current period
     Sl = ((countsLeft - prevLeft) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENCE);
     Sr = ((countsRight - prevRight) / (CLICKS_PER_ROTATION * GEAR_RATIO) * WHEEL_CIRCUMFERENCE);
 
+    // Manually Flipped Encoders due to odd behavior from using .flipEncoders(true)
+    Sl *= -1;
+    Sr *= -1;
+
     // Calculate our Change in S (Center Point)
-    deltaS = (Sr + Sl) / 2;
+    deltaS = (Sr + Sl) / 2.0;
 
     if (EN_DEBUG) {
       Serial.print("Distance Sl (Left): ");
@@ -233,9 +239,6 @@ void enReadCM() {
     updateLocale();
 
   }
-
-  // Update Head
-  setHead();
 }
 
 /**
@@ -284,11 +287,14 @@ void usReadCM() {
 
       // Update US Read Flag
       usReadFlag = true;
+
+      // Update Obj Detection Flag
+      objDetectionFlag = true;
     }
   }
 
   // Update Head Position for Next Reading
-//  setHead();
+  setHead();
 }
 
 void setHead() {
@@ -373,8 +379,54 @@ void updateLocale() {
  *  within our environment.
  */
 float updateDetection() {
-  // TODO:- Implement Detection Functionality
-  return 0.0;
+  if (objDetectionFlag) {
+    double left_average = 0.0;
+    double right_average = 0.0;
+    int mid_index = NUM_POSITIONS / 2;
+  
+    // Collect Averages in respect to Each Side (L + R)
+    for(int i = 0; i < mid_index; i++) {
+      // Get Left Total
+      left_average += (MAX_DISTANCE - distances[i]) * SERVO_PRIORITY[i];
+    }
+    left_average /= 2;
+  
+    for(int i = mid_index; i < NUM_POSITIONS; i++) {
+      // Get Right Total
+      right_average += (MAX_DISTANCE - distances[i]) * SERVO_PRIORITY[i];
+    }
+    right_average /= 2;
+  
+    // Get Middle Sensor Position Detection
+    double mid_average = (MAX_DISTANCE - distances[mid_index]) * SERVO_PRIORITY[mid_index];
+  
+    // Determine Direction based on greater side average
+    if (left_average < right_average) {
+      mid_average *= -1.0;
+    }
+
+    // Flip Obj Detection Flag
+    objDetectionFlag = false;
+  
+    if (OBJ_DETECTION_DEBUG) {
+      Serial.print("Left Avg: ");
+      Serial.print(left_average);
+      Serial.print(" Right Avg: ");
+      Serial.print(right_average);
+      Serial.print(" Mid Avg: ");
+      Serial.print(mid_average);
+      Serial.print(" Result: ");
+      Serial.print(left_average - left_average + mid_average);
+      Serial.println();
+    }
+  
+    if (OBJ_DETECTION_ON) {
+      return left_average - right_average + mid_average;    
+      
+    } else {
+      return 0.0;
+    }
+  }
 }
 
 /**
@@ -387,6 +439,9 @@ float updatePID() {
   // Compute Rate of Error (Radians)
   double desiredTheta = atan2((Goals[currentGoal][1] - pose[1]), (Goals[currentGoal][0] - pose[0]));
   errorRate = desiredTheta - pose[2];
+
+  // Apply Blanket atan2 call to resolve ~180 oscillation 
+  errorRate = atan2(sin(errorRate), cos(errorRate));
 
   if (ERROR_DEBUG) { 
     Serial.print("Desired Theta: ");
@@ -418,21 +473,19 @@ float updatePID() {
  *  of our PID algorithm.
  */
 void setMotors(float gResult, float oResult) {  
-  // Start with BASE_SPEED
-  float leftSpeed = BASE_SPEED;
-  float rightSpeed = BASE_SPEED;
-
   // Calculate Distance + Magnitude
   float current_distance = sqrt(sq(Goals[currentGoal][0] - pose[0]) + sq(pose[1] - Goals[currentGoal][1]));
   float magnitude = dampen((float)(current_distance) / distance_factor);
   
-  // Calculate Speed based on PID Result + Magnitude
-  leftSpeed -= (gResult * magnitude);
-  rightSpeed += (gResult * magnitude);
+  // Calculate Speed based w/ PID Result + Goal Result + Magnitude
+  float leftSpeed = BASE_SPEED * magnitude + gResult - oResult;
+  float rightSpeed = BASE_SPEED * magnitude - gResult + oResult;
 
   if (MOTOR_DEBUG) {
     Serial.print("PID Result: ");
     Serial.print(gResult);
+    Serial.print(" Obj Result: ");
+    Serial.print(oResult);
     Serial.print("  Distance Factor: ");
     Serial.print(distance_factor);
     Serial.print("  Magnitude: ");
